@@ -42,7 +42,10 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
+import time
 from pathlib import Path
+from queue import Empty, Queue
 
 import numpy as np
 import soundfile as sf
@@ -204,3 +207,99 @@ class TTS:
             player.wait(timeout=60)
         except Exception as e:
             log.error("TTS error: %s", e)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Vision — YOLOv7 with tiny continuous batching buffer
+# ══════════════════════════════════════════════════════════════════════════════
+
+class YOLOv7:
+    """
+    Tiny buffered inferencer inspired by vLLM continuous batching.
+
+    Call detect(image) from any thread. Requests are queued and merged into
+    micro-batches, so the model runs once for N images instead of N times.
+    """
+
+    def __init__(self, cfg: dict) -> None:
+        import torch
+
+        self._enabled = bool(cfg.get("enabled", True))
+        if not self._enabled:
+            self._model = None
+            return
+
+        self._batch_size = int(cfg.get("batch_size", 4))
+        self._max_wait_s = float(cfg.get("max_wait_ms", 20)) / 1000.0
+        self._imgsz = int(cfg.get("imgsz", 640))
+
+        repo = Path(cfg.get("repo", "yolov7")).expanduser().resolve()
+        weights = Path(cfg["weights"]).expanduser().resolve()
+        if not repo.exists():
+            raise FileNotFoundError(f"YOLOv7 repo not found: {repo}")
+        if not weights.exists():
+            raise FileNotFoundError(f"YOLOv7 weights not found: {weights}")
+
+        log.info("Loading YOLOv7: repo=%s weights=%s", repo, weights.name)
+        self._model = torch.hub.load(str(repo), "custom", path=str(weights), source="local")
+        self._model.eval()
+
+        self._q: Queue[dict] = Queue(maxsize=int(cfg.get("buffer_size", 64)))
+        self._stop = threading.Event()
+        self._worker = threading.Thread(target=self._loop, name="yolov7-batcher", daemon=True)
+        self._worker.start()
+
+    def close(self) -> None:
+        if not self._enabled:
+            return
+        self._stop.set()
+        self._worker.join(timeout=1)
+
+    def detect(self, image: np.ndarray) -> list[dict]:
+        if not self._enabled:
+            return []
+        slot = {"image": image, "event": threading.Event(), "result": []}
+        self._q.put(slot, timeout=1)
+        slot["event"].wait(timeout=5)
+        return slot["result"]
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                first = self._q.get(timeout=0.1)
+            except Empty:
+                continue
+
+            batch = [first]
+            deadline = time.time() + self._max_wait_s
+            while len(batch) < self._batch_size and time.time() < deadline:
+                try:
+                    batch.append(self._q.get(timeout=max(0.0, deadline - time.time())))
+                except Empty:
+                    break
+
+            try:
+                outs = self._infer([s["image"] for s in batch])
+            except Exception as e:
+                log.error("YOLOv7 inference error: %s", e)
+                outs = [[] for _ in batch]
+
+            for slot, out in zip(batch, outs):
+                slot["result"] = out
+                slot["event"].set()
+
+    def _infer(self, images: list[np.ndarray]) -> list[list[dict]]:
+        pred = self._model(images, size=self._imgsz)
+        rows = pred.pandas().xyxy
+        out: list[list[dict]] = []
+        for df in rows:
+            det = [
+                {
+                    "label": str(r["name"]),
+                    "conf": float(r["confidence"]),
+                    "xyxy": [float(r["xmin"]), float(r["ymin"]), float(r["xmax"]), float(r["ymax"])],
+                }
+                for _, r in df.iterrows()
+            ]
+            out.append(det)
+        return out
