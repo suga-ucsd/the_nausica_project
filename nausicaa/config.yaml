@@ -1,0 +1,63 @@
+# ══════════════════════════════════════════════
+#  Nausicaa v3 — llama.cpp edition
+#  4 files total: config.yaml, inference.py, tools.py, main.py
+# ══════════════════════════════════════════════
+
+# Your project folder. Mounted into the Docker sandbox at /workspace.
+workspace: "~/projects/browser_sandbox"
+
+# ── LLM via llama-cpp-python ─────────────────────────────────────────────────
+# Download a GGUF model first:
+#   pip install huggingface-hub
+#   huggingface-cli download bartowski/TinyLlama-1.1B-Chat-v1.0-GGUF \
+#     TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf --local-dir models/
+#
+# n_gpu_layers: -1 = all layers on GPU, 0 = CPU only, 20 = partial GPU
+llm:
+  model:        "models/tinyllama-1.1b-chat-v1.0.Q8_0.gguf"
+  n_gpu_layers: -1        # -1 = full GPU, 0 = CPU
+  n_ctx:        2048      # context window (KV cache size)
+  max_tokens:   400       # max tokens to generate per step
+  temperature:  0.7
+  top_p:        0.9
+  top_k:        40
+  repeat_penalty: 1.1
+
+# ── STT — whisper.cpp binary ─────────────────────────────────────────────────
+# Build: git clone https://github.com/ggerganov/whisper.cpp && cd whisper.cpp && make WHISPER_CUDA=1
+# Model: bash -c "cd whisper.cpp && bash models/download-ggml-model.sh base.en"
+stt:
+  binary: "whisper.cpp/main"
+  model:  "whisper.cpp/models/ggml-base.en.bin"
+  lang:   "en"
+
+# ── TTS — Piper binary ────────────────────────────────────────────────────────
+# Get: https://github.com/rhasspy/piper/releases  →  piper_linux_x86_64.tar.gz
+# Model: https://huggingface.co/rhasspy/piper-voices → en/en_US/lessac/medium/
+tts:
+  binary: "piper/piper"
+  model:  "models/en_US-lessac-medium.onnx"
+  rate:   1.0             # speaking rate (0.5 fast, 1.0 normal, 1.5 slow)
+
+# ── Voice capture ─────────────────────────────────────────────────────────────
+voice:
+  sample_rate:    16000
+  vad_threshold:  0.015   # RMS energy for speech detection (raise if false triggers)
+  silence_frames: 20      # quiet frames before utterance ends
+
+# ── Docker sandbox ────────────────────────────────────────────────────────────
+# All shell commands run inside this container. File I/O is Python-direct.
+docker:
+  image:     "debian:bookworm-slim"
+  memory:    "512m"
+  cpus:      "1.0"
+  pids:      128
+  network:   "none"       # air-gapped — no internet from tools
+
+# ── Shell tool ────────────────────────────────────────────────────────────────
+# Leave empty to allow any command not in the permanent ban list (rm, sudo, docker).
+# Or list specific commands to restrict.
+shell_whitelist: []
+
+# ── Agent ─────────────────────────────────────────────────────────────────────
+max_iterations: 8

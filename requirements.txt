@@ -1,0 +1,26 @@
+# Nausicaa — Python dependencies
+# Everything heavy (STT, TTS, OCR) runs as system binaries — not listed here.
+
+# Core ML — for the custom LLM only
+torch>=2.1.0
+numpy>=1.24
+
+# HuggingFace backend — needed to load TinyLlama (and any HF model)
+transformers>=4.36.0
+accelerate>=0.26.0         # enables device_map="cuda" and low_cpu_mem_usage
+
+# Config & CLI
+pyyaml>=6.0
+rich>=13.0
+
+# Audio capture (wraps PortAudio C library)
+pyaudio>=0.2.14
+
+# Audio file I/O (reading/writing WAV for whisper.cpp handoff)
+soundfile>=0.12.1
+
+# LLM weight format
+safetensors>=0.4.0
+
+# Tokenizer (for custom NausicaaLM — not needed for TinyLlama)
+sentencepiece>=0.2.0
