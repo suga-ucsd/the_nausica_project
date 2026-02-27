@@ -4,7 +4,7 @@
 
 ```
 config.yaml    all settings
-inference.py   LLM (llama-cpp-python) + STT (whisper.cpp) + TTS (Piper)
+inference.py   LLM + STT + TTS + YOLOv7 (buffered micro-batching)
 tools.py       Docker sandbox + all file/shell tools + ReAct agent loop
 main.py        CLI REPL + voice pipeline entry point
 ```
