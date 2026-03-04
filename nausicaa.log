@@ -78,3 +78,74 @@ In this case, we've called the `ls` tool and passed in no arguments. This will l
 2026-02-26 17:41:25,081 [WARNING] tools: No TOOL or ANSWER found — treating as answer
 2026-02-26 17:41:46,365 [INFO] tools: User: what is in index.html
 2026-02-26 17:42:05,549 [WARNING] tools: No TOOL or ANSWER found — treating as answer
+2026-02-26 23:05:42,860 [INFO] nausicaa: Loading LLM…
+2026-02-26 23:05:42,945 [INFO] inference: Loading GGUF model: tinyllama-1.1b-chat-v1.0.Q8_0.gguf
+2026-02-26 23:05:42,945 [INFO] inference:   n_gpu_layers=-1  n_ctx=2048
+2026-02-26 23:05:43,185 [INFO] inference: LLM ready
+2026-02-26 23:05:43,185 [INFO] tools: Starting sandbox container nausicaa_f200a025 (image=debian:bookworm-slim)
+2026-02-26 23:05:46,224 [INFO] nausicaa: Loading LLM…
+2026-02-26 23:05:46,293 [INFO] inference: Loading GGUF model: tinyllama-1.1b-chat-v1.0.Q8_0.gguf
+2026-02-26 23:05:46,293 [INFO] inference:   n_gpu_layers=-1  n_ctx=2048
+2026-02-26 23:05:46,581 [INFO] inference: LLM ready
+2026-02-26 23:05:46,581 [INFO] tools: Starting sandbox container nausicaa_9300828e (image=debian:bookworm-slim)
+2026-02-26 23:05:47,983 [INFO] tools: Sandbox ready (id=61615c990332)
+2026-02-27 11:38:27,095 [INFO] nausicaa: Loading LLM…
+2026-02-27 11:38:27,173 [INFO] inference: Loading GGUF model: tinyllama-1.1b-chat-v1.0.Q8_0.gguf
+2026-02-27 11:38:27,173 [INFO] inference:   n_gpu_layers=-1  n_ctx=2048
+2026-02-27 11:38:27,440 [INFO] inference: LLM ready
+2026-02-27 11:38:27,440 [INFO] tools: Starting sandbox container nausicaa_83f966e0 (image=debian:bookworm-slim)
+2026-02-27 11:38:28,649 [INFO] tools: Sandbox ready (id=51c24f8dfd6c)
+2026-02-27 11:38:38,089 [INFO] tools: User: I want to set up xmpp server how do I do it
+2026-02-27 11:39:13,139 [WARNING] tools: No TOOL or ANSWER found — treating as answer
+2026-02-28 10:45:38,380 [INFO] nausicaa: Loading LLM…
+2026-02-28 10:45:38,658 [INFO] inference: Loading GGUF model: tinyllama-1.1b-chat-v1.0.Q8_0.gguf
+2026-02-28 10:45:38,658 [INFO] inference:   n_gpu_layers=-1  n_ctx=2048
+2026-02-28 10:45:39,598 [INFO] inference: LLM ready
+2026-02-28 10:45:39,599 [INFO] tools: Starting sandbox container nausicaa_5308c3ce (image=debian:bookworm-slim)
+2026-02-28 10:45:41,199 [INFO] tools: Sandbox ready (id=0f58d48ae00d)
+2026-02-28 10:45:44,904 [INFO] tools: User: #define len(arr) sizeof(arr)/sizeof(arr[0])
+2026-02-28 10:46:00,317 [WARNING] tools: No TOOL or ANSWER found — treating as answer
+2026-02-28 10:46:00,319 [INFO] tools: User: typedef struct {
+2026-02-28 10:46:10,276 [WARNING] tools: No TOOL or ANSWER found — treating as answer
+2026-02-28 10:46:10,278 [INFO] tools: User: int *arr;
+2026-02-28 10:46:27,921 [WARNING] tools: No TOOL or ANSWER found — treating as answer
+2026-02-28 10:46:27,941 [INFO] tools: User: int *shape;
+2026-03-01 00:50:02,848 [INFO] nausicaa: Loading LLM…
+2026-03-01 00:51:01,630 [INFO] nausicaa: Loading LLM…
+2026-03-01 00:51:01,703 [INFO] inference: Loading GGUF model: tinyllama-1.1b-chat-v1.0.Q8_0.gguf
+2026-03-01 00:51:01,703 [INFO] inference:   n_gpu_layers=-1  n_ctx=2048
+2026-03-01 00:51:02,954 [INFO] inference: LLM ready
+2026-03-01 00:51:02,971 [INFO] memory: Memory repository initialised at /home/suga/projects/myproject/memory
+2026-03-01 00:51:02,976 [INFO] tools: Starting sandbox container nausicaa_1283f91a (image=debian:bookworm-slim)
+2026-03-01 00:51:04,450 [INFO] tools: Sandbox ready (id=7e3dd902773e)
+2026-03-01 00:51:26,345 [INFO] nausicaa: Loading LLM…
+2026-03-01 00:51:26,419 [INFO] inference: Loading GGUF model: tinyllama-1.1b-chat-v1.0.Q8_0.gguf
+2026-03-01 00:51:26,419 [INFO] inference:   n_gpu_layers=-1  n_ctx=2048
+2026-03-01 00:51:27,026 [INFO] inference: LLM ready
+2026-03-01 00:51:27,047 [INFO] memory: Memory repository initialised at /home/suga/projects/cuda-kernels/memory
+2026-03-01 00:51:27,058 [INFO] tools: Starting sandbox container nausicaa_078e45ef (image=debian:bookworm-slim)
+2026-03-01 00:51:28,276 [INFO] tools: Sandbox ready (id=201142f922c6)
+2026-03-01 00:51:35,762 [INFO] tools: User: what is it
+2026-03-01 00:51:38,712 [WARNING] tools: No TOOL or ANSWER found — treating as answer
+2026-03-01 00:51:49,815 [INFO] tools: User: I am shubo
+2026-03-01 00:51:55,287 [WARNING] tools: No TOOL or ANSWER found — treating as answer
+2026-03-01 00:52:04,087 [INFO] tools: User: what is my name
+2026-03-01 00:52:10,789 [WARNING] tools: No TOOL or ANSWER found — treating as answer
+2026-03-01 00:52:50,091 [INFO] nausicaa: Loading LLM…
+2026-03-01 00:52:50,168 [INFO] inference: Loading GGUF model: tinyllama-1.1b-chat-v1.0.Q8_0.gguf
+2026-03-01 00:52:50,168 [INFO] inference:   n_gpu_layers=-1  n_ctx=2048
+2026-03-01 00:52:50,776 [INFO] inference: LLM ready
+2026-03-01 00:52:50,777 [INFO] tools: Starting sandbox container nausicaa_bdc75cd9 (image=debian:bookworm-slim)
+2026-03-01 00:52:51,901 [INFO] tools: Sandbox ready (id=6d1a87d3fa8a)
+2026-03-01 00:52:54,494 [INFO] tools: User: whats my name
+2026-03-01 00:52:55,925 [WARNING] tools: No TOOL or ANSWER found — treating as answer
+2026-03-01 00:55:28,819 [INFO] nausicaa: Loading LLM…
+2026-03-01 00:55:28,898 [INFO] inference: Loading GGUF model: tinyllama-1.1b-chat-v1.0.Q8_0.gguf
+2026-03-01 00:55:28,898 [INFO] inference:   n_gpu_layers=-1  n_ctx=2048
+2026-03-01 00:55:29,552 [INFO] inference: LLM ready
+2026-03-01 00:55:29,558 [INFO] memory: Memory repository initialised at /home/suga/projects/memory
+2026-03-01 00:55:29,567 [INFO] tools: Starting sandbox container nausicaa_67dd58ab (image=debian:bookworm-slim)
+2026-03-01 00:55:30,781 [INFO] tools: Sandbox ready (id=8eed271070ce)
+2026-03-01 00:55:39,246 [INFO] tools: User: I am shubo
+2026-03-01 00:55:45,073 [WARNING] tools: No TOOL or ANSWER found — treating as answer
+2026-03-01 00:56:17,784 [INFO] tools: User: I like watching youtube videos by vsauce

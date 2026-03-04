@@ -4,7 +4,7 @@
 # ══════════════════════════════════════════════
 
 # Your project folder. Mounted into the Docker sandbox at /workspace.
-workspace: "~/projects/browser_sandbox"
+workspace: "~/projects/"
 
 # ── LLM via llama-cpp-python ─────────────────────────────────────────────────
 # Download a GGUF model first:
@@ -38,16 +38,6 @@ tts:
   binary: "piper/piper"
   model:  "models/en_US-lessac-medium.onnx"
   rate:   1.0             # speaking rate (0.5 fast, 1.0 normal, 1.5 slow)
-
-# ── Vision — YOLOv7 (optional) ───────────────────────────────────────────────
-yolov7:
-  enabled: false
-  repo: "yolov7"                     # local clone of https://github.com/WongKinYiu/yolov7
-  weights: "models/yolov7.pt"
-  imgsz: 640
-  buffer_size: 64
-  batch_size: 4
-  max_wait_ms: 20
 
 # ── Voice capture ─────────────────────────────────────────────────────────────
 voice:

@@ -309,7 +309,7 @@ SYSTEM_PROMPT = """\
 You are Nausicaa, a voice coding assistant. Help the user work with code and files.
 WORKSPACE: {workspace}
 Answers are spoken aloud — be brief and direct.
-
+{memory}
 TOOLS (required, [optional]):
 {schemas}
 
@@ -350,9 +350,24 @@ class Agent:
                  whitelist: list, max_iter: int = 8) -> None:
         self._llm = llm
         self._max = max_iter
-        self._history: list[dict] = []  # running message list
+        self._history: list[dict] = []
 
-        # Start sandbox + register tools
+        # Memory — git-backed, lives at workspace/memory/
+        from memory import MemoryStore
+        self._mem = MemoryStore(workspace / "memory")
+        self._mem.init()
+
+        # Expose remember/forget as tools
+        mem = self._mem
+        @tool("remember", "Permanently store a fact about the user or project.",
+              {"fact": {"required": True}})
+        def _remember(fact): return _ok(mem.remember(fact))
+
+        @tool("forget", "Remove facts matching a keyword from memory.",
+              {"keyword": {"required": True}})
+        def _forget(keyword): return _ok(mem.forget(keyword))
+
+        # Start sandbox + register file/shell/search tools
         self._sb = Sandbox(workspace, docker_cfg)
         self._sb.start()
         build_tools(self._sb, whitelist)
@@ -362,6 +377,7 @@ class Agent:
             workspace=workspace,
             schemas=schemas,
             tree=self._sb.tree(depth=1),
+            memory=self._mem.summary_block(),   # ≈ 60–80 tokens, empty string if no memory yet
         )
 
     def chat(self, user_text: str) -> str:
@@ -379,6 +395,8 @@ class Agent:
                 answer = m.group(1).strip()
                 self._history.append({"role": "assistant", "content": raw})
                 self._trim_history()
+                # Reflect on this turn — heuristic, no LLM call
+                self._mem.reflect(user_text, answer)
                 log.info("Answer: %s", answer)
                 return answer
 
@@ -393,7 +411,6 @@ class Agent:
                 else:
                     result = self._run_tool(tool_name, args)
 
-                # Inject result into history as assistant + tool_result pair
                 self._history.append({"role": "assistant", "content": raw.strip()})
                 self._history.append({
                     "role": "user",
@@ -401,15 +418,17 @@ class Agent:
                 })
                 continue
 
-            # Neither — treat raw output as answer
+            # Neither — treat as answer
             log.warning("No TOOL or ANSWER found — treating as answer")
             self._history.append({"role": "assistant", "content": raw})
+            self._mem.reflect(user_text, raw)
             self._trim_history()
             return raw.strip()
 
         return "I hit the step limit. Please try a simpler request or type /reset."
 
     def reset(self) -> None:
+        self._mem.save_session(self._history)   # persist session before clearing
         self._history.clear()
 
     def _run_tool(self, name: str, args: dict) -> str:

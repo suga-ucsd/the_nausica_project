@@ -184,7 +184,7 @@ def run_cli(cfg: dict) -> None:
 
     console = Console()
     console.print("\n[bold green]🌿 Nausicaa CLI[/]  —  Ctrl+C to quit\n"
-                  "[dim]Commands: /reset  /tree  exit[/]\n")
+                  "[dim]Commands: /reset  /tree  /memory  exit[/]\n")
 
     log.info("Loading LLM…")
     llm   = LLM(cfg["llm"])
@@ -200,15 +200,19 @@ def run_cli(cfg: dict) -> None:
         try:
             user = Prompt.ask("[bold cyan]you[/]")
         except (KeyboardInterrupt, EOFError):
-            console.print("\n[dim]bye[/]"); break
+            agent._mem.save_session(agent._history)
+            console.print("\n[dim]Session saved. bye[/]"); break
 
         u = user.strip()
         if not u: continue
         if u.lower() in ("exit", "quit", "q"): break
         if u == "/reset":
-            agent.reset(); console.print("[dim]Session cleared.[/]"); continue
+            agent.reset(); console.print("[dim]Session saved and cleared.[/]"); continue
         if u == "/tree":
             console.print(agent._sb.tree(depth=2)); continue
+        if u == "/memory":
+            txt = agent._mem.facts.read_text() if agent._mem.facts.exists() else "(empty)"
+            console.print(f"[dim]{txt}[/]"); continue
 
         try:
             answer = agent.chat(u)
