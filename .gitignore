@@ -1,2 +1,4 @@
 **/models/
 nausicaa_env/
+.venv
+llama-cpp-python

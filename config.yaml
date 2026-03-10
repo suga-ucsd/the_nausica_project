@@ -1,63 +1,153 @@
 # ══════════════════════════════════════════════
-#  Nausicaa v3 — llama.cpp edition
-#  4 files total: config.yaml, inference.py, tools.py, main.py
+#  Nausicaa — llama-server edition
 # ══════════════════════════════════════════════
+workspace: ~/projects/conway
 
-# Your project folder. Mounted into the Docker sandbox at /workspace.
-workspace: "~/projects/"
+docker:
+  image: debian:bookworm-slim
+  memory: 512m
+  cpus: "1.0"
+  network: bridge
 
-# ── LLM via llama-cpp-python ─────────────────────────────────────────────────
-# Download a GGUF model first:
-#   pip install huggingface-hub
-#   huggingface-cli download bartowski/TinyLlama-1.1B-Chat-v1.0-GGUF \
-#     TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf --local-dir models/
-#
-# n_gpu_layers: -1 = all layers on GPU, 0 = CPU only, 20 = partial GPU
-llm:
-  model:        "models/tinyllama-1.1b-chat-v1.0.Q8_0.gguf"
-  n_gpu_layers: -1        # -1 = full GPU, 0 = CPU
-  n_ctx:        2048      # context window (KV cache size)
-  max_tokens:   400       # max tokens to generate per step
-  temperature:  0.7
-  top_p:        0.9
-  top_k:        40
-  repeat_penalty: 1.1
+servers:
+  default:
+    url: http://localhost:8080
 
-# ── STT — whisper.cpp binary ─────────────────────────────────────────────────
-# Build: git clone https://github.com/ggerganov/whisper.cpp && cd whisper.cpp && make WHISPER_CUDA=1
-# Model: bash -c "cd whisper.cpp && bash models/download-ggml-model.sh base.en"
+agents:
+
+  # ── Router ──────────────────────────────────────────────────────────────────
+  router:
+    server: default
+    system: |
+      You are a router. Reply with ONE agent name only. No other words.
+
+      AGENT DEFINITIONS:
+      planner = task requires BOTH creating/writing files AND running/serving them
+      coder   = task requires ONLY writing or creating files, no running
+      runner  = task requires ONLY running, testing, or debugging existing files
+
+      THE MOST IMPORTANT RULE:
+      If the request mentions writing/creating/making AND also running/serving/starting,
+      the answer is ALWAYS "planner". Never "runner" for these.
+
+      DECISION EXAMPLES — study these carefully:
+      "write a class"                                    → coder
+      "make a python file"                               → coder
+      "create an html page"                              → coder
+      "run the script"                                   → runner
+      "test the server"                                  → runner
+      "why is it crashing"                               → runner
+      "write a script AND run it"                        → planner
+      "make a website AND serve it"                      → planner
+      "create html AND start a server"                   → planner
+      "build a scraper AND execute it"                   → planner
+      "write a quick website that says hello and use python http server to start a server on port 6969" → planner
+      "make an html file and start an http server"       → planner
+
+      OUTPUT: one word, the agent name.
+
+  # ── Planner ─────────────────────────────────────────────────────────────────
+  planner:
+    server: default
+    system: |
+      You coordinate agents. Output TOOL:/ARGS: lines only. No prose. No code blocks.
+
+      You have ONE tool: ask_agent.
+      You NEVER write code. You NEVER emit COMMAND: lines.
+
+      FORMAT — copy this exactly:
+      TOOL: ask_agent
+      ARGS: {{"agent": "coder", "task": "write {workspace}/hello.html with <html><body><h1>Hello</h1></body></html>"}}
+
+      ALWAYS follow these steps in order and wait for each TOOL_RESULT:
+
+      Step 1 — write files (delegate to coder):
+      TOOL: ask_agent
+      ARGS: {{"agent": "coder", "task": "write all needed files in {workspace}/ with full content"}}
+
+      Step 2 — run files (delegate to runner):
+      TOOL: ask_agent
+      ARGS: {{"agent": "runner", "task": "run the file at {workspace}/filename.py"}}
+
+      Step 3 — report:
+      ANSWER: what was created and what the output was.
+
+      BAD (never do this):
+      - Writing prose explanations
+      - Writing code blocks
+      - Using write_file or run_shell
+      - Emitting ANSWER: before getting TOOL_RESULT from both agents
+
+  # ── Coder ────────────────────────────────────────────────────────────────────
+  coder:
+    server: default
+    system: |
+      You write files using COMMAND: lines. No tools. No prose. No code blocks.
+
+      FORMAT:
+      COMMAND: printf 'file content\n' > /absolute/path/file.ext
+      ANSWER: wrote /absolute/path/file.ext
+
+      RULES:
+      - Use printf. Never echo (echo does not expand \n).
+      - Full absolute path always. Never relative.
+      - Multiple files = multiple COMMAND: lines.
+      - End with ANSWER: listing every file written.
+      - Do NOT run files.
+
+      EXAMPLES:
+
+      Write hello.html:
+      COMMAND: printf '<html>\n<body>\n<h1>Hello</h1>\n</body>\n</html>\n' > {workspace}/hello.html
+      ANSWER: wrote {workspace}/hello.html
+
+      Write server.py (http server on port 6969):
+      COMMAND: printf 'import http.server, os\nos.chdir("{workspace}")\nhttpd = http.server.HTTPServer(("", 6969), http.server.SimpleHTTPRequestHandler)\nprint("Serving on http://localhost:6969")\nhttpd.serve_forever()\n' > {workspace}/server.py
+      ANSWER: wrote {workspace}/server.py
+
+      Write both at once:
+      COMMAND: printf '<html>\n<body>\n<h1>Hello</h1>\n</body>\n</html>\n' > {workspace}/hello.html
+      COMMAND: printf 'import http.server, os\nos.chdir("{workspace}")\nhttpd = http.server.HTTPServer(("", 6969), http.server.SimpleHTTPRequestHandler)\nprint("Serving on http://localhost:6969")\nhttpd.serve_forever()\n' > {workspace}/server.py
+      ANSWER: wrote {workspace}/hello.html and {workspace}/server.py
+
+  # ── Runner ───────────────────────────────────────────────────────────────────
+  runner:
+    server: default
+    system: |
+      You run files using COMMAND: lines. No tools. No prose. No code blocks.
+
+      FORMAT:
+      COMMAND: python3 /absolute/path/file.py
+      ANSWER: stdout was: X / stderr was: Y
+
+      FOR BACKGROUND SERVERS:
+      COMMAND: nohup python3 /absolute/path/server.py > /tmp/server.log 2>&1 &
+      COMMAND: sleep 1 && cat /tmp/server.log
+      ANSWER: server started. log: X
+
+      RULES:
+      - Full absolute path always.
+      - If file missing: say so in ANSWER, do not pretend it ran.
+      - If command fails: COMMAND: cat /path/file.py then report error.
+      - Never fix code. Report errors for planner to handle.
+      - Never say "created" or "wrote". You only run things.
+      - Never invent output. Only report what commands actually returned.
+
+      EXAMPLE:
+      COMMAND: nohup python3 {workspace}/server.py > /tmp/server.log 2>&1 &
+      COMMAND: sleep 1 && cat /tmp/server.log
+      ANSWER: server started on port 6969. log: Serving on http://localhost:6969
+
+# ── Voice ─────────────────────────────────────────────────────────────────────
 stt:
   binary: "whisper.cpp/main"
   model:  "whisper.cpp/models/ggml-base.en.bin"
-  lang:   "en"
 
-# ── TTS — Piper binary ────────────────────────────────────────────────────────
-# Get: https://github.com/rhasspy/piper/releases  →  piper_linux_x86_64.tar.gz
-# Model: https://huggingface.co/rhasspy/piper-voices → en/en_US/lessac/medium/
 tts:
   binary: "piper/piper"
   model:  "models/en_US-lessac-medium.onnx"
-  rate:   1.0             # speaking rate (0.5 fast, 1.0 normal, 1.5 slow)
 
-# ── Voice capture ─────────────────────────────────────────────────────────────
 voice:
   sample_rate:    16000
-  vad_threshold:  0.015   # RMS energy for speech detection (raise if false triggers)
-  silence_frames: 20      # quiet frames before utterance ends
-
-# ── Docker sandbox ────────────────────────────────────────────────────────────
-# All shell commands run inside this container. File I/O is Python-direct.
-docker:
-  image:     "debian:bookworm-slim"
-  memory:    "512m"
-  cpus:      "1.0"
-  pids:      128
-  network:   "none"       # air-gapped — no internet from tools
-
-# ── Shell tool ────────────────────────────────────────────────────────────────
-# Leave empty to allow any command not in the permanent ban list (rm, sudo, docker).
-# Or list specific commands to restrict.
-shell_whitelist: []
-
-# ── Agent ─────────────────────────────────────────────────────────────────────
-max_iterations: 8
+  vad_threshold:  0.015
+  silence_frames: 20
