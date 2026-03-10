@@ -52,7 +52,7 @@ class Sandbox:
             "--security-opt","no-new-privileges:true",
             "--read-only", "--tmpfs", "/tmp:size=64m",
             "--volume", f"{self.root}:{_CONTAINER_WS}:rw",
-            "--workdir", _CONTAINER_WS, "--rm",
+            "--workdir", _CONTAINER_WS,
             img, "sleep", "infinity",
         ], capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
@@ -257,11 +257,44 @@ def register_tools(sb: Sandbox, memory: "Memory", agents: dict[str, "Agent"]) ->
             cmds = _CMD.findall(raw)
             cmd_outputs = []
 
+            # Pattern that matches a tool-call-shaped COMMAND like:
+            #   read_file(path="...")  or  write_file(path="...", content="...")
+            # These must go through _run_tool(), not subprocess.
+            _TOOL_CALL_RE = re.compile(r'^(\w+)\((.*)\)$', re.DOTALL)
+
             if cmds:
                 log.info("ask_agent: running %d COMMAND(s) emitted by '%s'", len(cmds), agent)
                 for cmd in cmds:
                     cmd = cmd.strip()
                     log.info("  exec: %s", cmd)
+
+                    # ── Detect tool-call syntax and route through _run_tool ──
+                    tc = _TOOL_CALL_RE.match(cmd)
+                    if tc:
+                        tool_name = tc.group(1)
+                        tool_args_str = tc.group(2).strip()
+                        if tool_name in TOOLS:
+                            log.info("  detected tool call: %s", tool_name)
+                            try:
+                                # Parse keyword args: key="value" pairs
+                                import ast as _ast
+                                # Wrap in a fake function call so ast can parse it
+                                parsed = _ast.parse(f"f({tool_args_str})", mode="eval")
+                                kwargs = {}
+                                for kw in parsed.body.keywords:
+                                    kwargs[kw.arg] = _ast.literal_eval(kw.value)
+                                tool_out = TOOLS[tool_name]["fn"](**kwargs)
+                                out = tool_out.get("output", "")
+                                rc  = 0 if tool_out.get("ok") else 1
+                                log.info("  tool rc=%d output=%r", rc, out[:200])
+                                summary = f"COMMAND `{cmd}` rc={rc}\nstdout: {out}"
+                                cmd_outputs.append(summary)
+                            except Exception as exc:
+                                log.warning("  tool call failed: %s", exc)
+                                cmd_outputs.append(f"COMMAND `{cmd}` error: {exc}")
+                            continue  # skip subprocess for this cmd
+
+                    # ── Regular shell command ──────────────────────────────
                     try:
                         result = subprocess.run(
                             cmd, shell=True, capture_output=True,

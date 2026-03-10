@@ -2,3 +2,4 @@
 nausicaa_env/
 .venv
 llama-cpp-python
+.reference

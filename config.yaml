@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════
 #  Nausicaa — llama-server edition
 # ══════════════════════════════════════════════
-workspace: ~/projects/conway
+workspace: ~/programs/vla
 
 docker:
   image: debian:bookworm-slim

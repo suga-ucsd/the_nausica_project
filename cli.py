@@ -318,6 +318,7 @@ def inject_command_queue_prompt(system_prompt: str) -> str:
 def run_cli(cfg: dict, agent_name: str) -> None:
     from rich.console import Console
     from rich.prompt import Prompt
+    from rich.markdown import Markdown
     from agents import build
 
     console = Console()
@@ -465,113 +466,167 @@ def run_cli(cfg: dict, agent_name: str) -> None:
         # ── Chat ──────────────────────────────────────────────────────────
         try:
             DBG.header("CHAT TURN START")
+            MAX_RETRY = 6   # max self-correction attempts per user turn
 
-            # ── Pre-flight: strip COMMAND_QUEUE_RESULTS from history so the
-            # LLM sees clean conversation turns only.
-            #
-            # Two locations to clean:
-            #   (a) standalone user messages tagged COMMAND_QUEUE_RESULTS
-            #       (the old injection strategy, kept as fallback)
-            #   (b) the "\n\nCOMMAND_QUEUE_RESULTS:..." block appended to
-            #       the tail of assistant messages (current strategy)
-            if hasattr(active, "_history"):
-                before = len(active._history)
-                cleaned = []
-                for msg in active._history:
-                    role    = msg.get("role", "")
-                    content = str(msg.get("content", ""))
+            for _attempt in range(MAX_RETRY):
+                DBG(f"[cyan]Attempt {_attempt + 1}/{MAX_RETRY}[/]")
 
-                    # (a) drop standalone injected user messages
-                    if role == "user" and content.startswith("COMMAND_QUEUE_RESULTS"):
-                        continue
+                # ── Pre-flight: strip stale COMMAND_QUEUE_RESULTS ─────────
+                _hist_obj = getattr(active, "_last_agent", None) or active
+                if hasattr(_hist_obj, "_history"):
+                    before  = len(_hist_obj._history)
+                    cleaned = []
+                    for msg in _hist_obj._history:
+                        role    = msg.get("role", "")
+                        content = str(msg.get("content", ""))
+                        if role == "user" and content.startswith("COMMAND_QUEUE_RESULTS"):
+                            continue
+                        if role == "assistant" and "\n\nCOMMAND_QUEUE_RESULTS:" in content:
+                            msg = dict(msg)
+                            msg["content"] = content.split("\n\nCOMMAND_QUEUE_RESULTS:")[0]
+                        cleaned.append(msg)
+                    _hist_obj._history = cleaned
+                    pruned = before - len(_hist_obj._history)
+                    DBG(f"[yellow]Pre-flight prune: {before} -> {len(_hist_obj._history)} "
+                        f"({pruned} dropped)[/]")
 
-                    # (b) strip appended block from assistant messages
-                    if role == "assistant" and "\n\nCOMMAND_QUEUE_RESULTS:" in content:
-                        msg = dict(msg)
-                        msg["content"] = content.split("\n\nCOMMAND_QUEUE_RESULTS:")[0]
+                    if len(_hist_obj._history) > 8:
+                        _hist_obj._history = _hist_obj._history[-8:]
+                        DBG("[yellow]Trimmed history to last 8 messages[/]")
 
-                    cleaned.append(msg)
+                # ── On retry turns, inject the error as a new user message ─
+                # so the LLM knows what went wrong and can self-correct.
+                if _attempt > 0 and _failed_results:
+                    error_summary = "\n".join(
+                        f"Command `{r['command']}` failed (rc={r['returncode']}): "
+                        f"{r['stderr'] or r['stdout'] or 'no output'}"
+                        for r in _failed_results
+                    )
+                    retry_msg = (
+                        f"The previous command(s) failed:\n{error_summary}\n"
+                        f"Fix the error and try again. "
+                        f"If a package is missing, install it first with the correct installer "
+                        f"(apt-get, pip, etc.), then retry the original command."
+                    )
+                    console.print(f"[yellow]↺ retry {_attempt}: {error_summary[:120]}[/]")
+                    DBG(f"Injecting retry context: {retry_msg[:200]}")
+                    answer = active.chat(retry_msg)
+                else:
+                    answer = active.chat(u)
 
-                active._history = cleaned
-                pruned = before - len(active._history)
-                DBG(f"[yellow]Pre-flight prune: {before} -> {len(active._history)} "
-                    f"messages ({pruned} dropped, results blocks stripped)[/]")
+                DBG(f"active.chat() returned {len(answer)} chars: {answer[:300]!r}")
 
-            # ── Enforce max history depth to stop old bad commands accumulating.
-            # Keep the system prompt + last 6 real turns (3 user + 3 assistant).
-            # This is the most reliable way to stop the LLM echoing stale commands.
-            if hasattr(active, "_history") and len(active._history) > 8:
-                active._history = active._history[-8:]
-                DBG(f"[yellow]Trimmed history to last 8 messages[/]")
+                # ── Recover raw LLM output ─────────────────────────────────
+                raw_llm, raw_source = _get_raw_llm_output(active, fallback=answer)
 
-            answer = active.chat(u)
-            DBG(f"active.chat() returned {len(answer)} chars: {answer[:300]!r}")
+                # ── Ingest COMMAND: lines ──────────────────────────────────
+                new_cmds = cq.ingest(raw_llm, source_label=raw_source)
+                if new_cmds:
+                    console.print(
+                        f"[dim]Queued {len(new_cmds)}: "
+                        + "  ".join(f"[cyan]{c}[/cyan]" for c in new_cmds)
+                        + "[/]"
+                    )
+                else:
+                    DBG("[yellow]No COMMAND: lines found this turn.[/]")
 
-            # Step 1: recover raw LLM text (before Agent.chat() stripped it)
-            raw_llm, raw_source = _get_raw_llm_output(active, fallback=answer)
+                # ── Execute queue ──────────────────────────────────────────
+                _failed_results = []
+                if cq:
+                    console.print(f"\n[bold magenta]⚙  executing {len(cq)} command(s)…[/]")
+                    results = cq.execute_all(cwd=workspace_path, print_fn=console.print)
+                    _failed_results = [r for r in results if not r["ok"]]
 
-            # Step 2: parse COMMAND: lines out of the raw text
-            new_cmds = cq.ingest(raw_llm, source_label=raw_source)
+                    # Attach results to the last assistant message
+                    _hist_target = (
+                        getattr(active, "_last_agent", None) or active
+                        if not hasattr(active, "_history")
+                        else active
+                    )
+                    if hasattr(_hist_target, "_history") and _hist_target._history:
+                        active_hist = _hist_target
+                    else:
+                        active_hist = active
 
-            if new_cmds:
-                console.print(
-                    f"[dim]Queued {len(new_cmds)}: "
-                    + "  ".join(f"[cyan]{c}[/cyan]" for c in new_cmds)
-                    + "[/]"
-                )
-            else:
-                DBG(
-                    "[yellow]No COMMAND: lines found this turn.  "
-                    "Use /debug to see what the LLM actually output.[/]"
-                )
-
-            # Step 3: execute
-            if cq:
-                console.print(f"\n[bold magenta]⚙  executing {len(cq)} command(s)…[/]")
-                results = cq.execute_all(cwd=workspace_path, print_fn=console.print)
-
-                # Step 4: attach results to the ASSISTANT turn they belong to.
-                # For Router, inject into the last-used agent's history.
-                _hist_target = (
-                    getattr(active, "_last_agent", None) or active
-                    if not hasattr(active, "_history")
-                    else active
-                )
-                if hasattr(_hist_target, "_history") and _hist_target._history:
-                    active = _hist_target  # temporarily point at the real agent
-                if hasattr(active, "_history") and active._history:
-                    lines = []
-                    for r in results:
-                        lines.append(
+                    if hasattr(active_hist, "_history") and active_hist._history:
+                        lines = [
                             f"COMMAND `{r['command']}` rc={r['returncode']}\n"
                             f"stdout: {r['stdout'] or '(none)'}\n"
                             f"stderr: {r['stderr'] or '(none)'}"
-                        )
-                    results_block = "\n\nCOMMAND_QUEUE_RESULTS:\n" + "\n\n".join(lines)
-
-                    # Find the last assistant message and append results to it
-                    for i in range(len(active._history) - 1, -1, -1):
-                        if active._history[i].get("role") == "assistant":
-                            active._history[i]["content"] += results_block
-                            DBG(
-                                f"Appended COMMAND_QUEUE_RESULTS to assistant "
-                                f"history[{i}] (+{len(results_block)} chars)"
+                            for r in results
+                        ]
+                        results_block = "\n\nCOMMAND_QUEUE_RESULTS:\n" + "\n\n".join(lines)
+                        for i in range(len(active_hist._history) - 1, -1, -1):
+                            if active_hist._history[i].get("role") == "assistant":
+                                active_hist._history[i]["content"] += results_block
+                                DBG(f"Appended results to history[{i}]")
+                                break
+                        else:
+                            active_hist._history.append(
+                                {"role": "user", "content": "COMMAND_QUEUE_RESULTS:\n" + "\n\n".join(lines)}
                             )
-                            break
-                    else:
-                        # No assistant message found — fall back to user turn
-                        active._history.append(
-                            {"role": "user",
-                             "content": "COMMAND_QUEUE_RESULTS:\n" + "\n\n".join(lines)}
-                        )
-                        DBG("No assistant msg found; injected as user turn (fallback).")
-            else:
-                DBG("Queue empty after ingest — skipping execution.")
+                else:
+                    _failed_results = []
+                    DBG("Queue empty — skipping execution.")
 
-            # Step 5: display answer with COMMAND: lines stripped out
-            display = _COMMAND_RE.sub("", answer).strip()
+                # ── Done when no failures AND answer looks final ────────
+                _answer_has_artifacts = bool(
+                    re.search(r"^(TOOL_RESULT|TOOL:|ARGS:)", answer, re.MULTILINE)
+                )
+                if not _failed_results and not _answer_has_artifacts:
+                    # Commands ran successfully. Ask the LLM to summarise using
+                    # the REAL stdout — this replaces the pre-execution prediction.
+                    if results:
+                        real_output = "\n".join(
+                            f"Command: {r['command']}\n"
+                            f"stdout: {r['stdout'] or '(no output)'}\n"
+                            f"stderr: {r['stderr'] or '(none)'}"
+                            for r in results
+                        )
+                        summary_prompt = (
+                            f"The commands finished. Here is the REAL output:\n"
+                            f"{real_output}\n"
+                            f"Summarise what happened using only the output above. "
+                            f"Do not invent or predict any output."
+                        )
+                        DBG(f"[green]Fetching grounded summary from LLM[/]")
+                        answer = active.chat(summary_prompt)
+                        DBG(f"Grounded answer: {answer[:200]!r}")
+                        # Remove the summary_prompt exchange from history so it
+                        # doesn't replay on the next user turn.
+                        # active.chat() appended: user(summary_prompt) + assistant(answer)
+                        _hist_obj2 = getattr(active, "_last_agent", None) or active
+                        if hasattr(_hist_obj2, "_history") and len(_hist_obj2._history) >= 2:
+                            _hist_obj2._history = _hist_obj2._history[:-2]
+                            DBG("[yellow]Popped summary exchange from history[/]")
+                    DBG(f"[green]All commands succeeded on attempt {_attempt + 1}[/]")
+                    break
+                if _answer_has_artifacts and not _failed_results:
+                    DBG("[yellow]Answer contains tool artifacts — continuing[/]")
+                    _failed_results = [{"command": "(pending)", "returncode": 1,
+                                        "stdout": "", "stderr": "task not yet complete"}]
+
+                DBG(f"[red]{len(_failed_results)} command(s) failed — will retry[/]")
+
+            else:
+                console.print(
+                    f"[bold red]⚠  gave up after {MAX_RETRY} attempts. "
+                    f"Last errors: "
+                    + ", ".join(r['stderr'][:80] for r in _failed_results)
+                    + "[/]"
+                )
+
+            # ── Display final answer ───────────────────────────────────────
+            # Strip COMMAND: lines and TOOL_RESULT lines from display
+            display = _COMMAND_RE.sub("", answer)
+            display = re.sub(r"^TOOL_RESULT\s*\([^)]*\):.*$", "", display, flags=re.MULTILINE)
+            display = re.sub(r"^TOOL:\s*\S+.*$", "", display, flags=re.MULTILINE)
+            display = re.sub(r"^ARGS:\s*\{.*$", "", display, flags=re.MULTILINE)
+            display = display.strip()
             if display:
-                console.print(f"\n[bold yellow]nausicaa:[/] {display}\n")
+                console.print("\n[bold yellow]nausicaa:[/]")
+                console.print(Markdown(display))
+                console.print()
             else:
                 DBG("Answer empty after stripping COMMAND: lines.")
 
